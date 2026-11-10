@@ -1,32 +1,782 @@
-import React,{useEffect,useState} from 'react';
+
+import React, { useEffect, useState } from 'react';
 import api from '../services/seriesApi';
-import {Link} from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import './Admin.css';
-const blank={title:'',slug:'',description:'',posterUrl:'',backdropUrl:'',genres:'',releaseYear:'',rating:'',contentProvider:'',featured:false,published:false};
-const epBlank={title:'',seasonNumber:1,episodeNumber:1,description:'',thumbnailUrl:'',published:false};
-const tokenKey='streamvault-admin-token';
-function config(token){return {headers:{Authorization:`Bearer ${token}`}}}
-function errorText(e){return e.response?.data?.message||e.message||'Request failed'}
-export default function Admin(){
- const [token,setToken]=useState(()=>sessionStorage.getItem(tokenKey)||'');const [email,setEmail]=useState('');const [password,setPassword]=useState('');const [items,setItems]=useState([]);const [editing,setEditing]=useState(null);const [form,setForm]=useState(blank);const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [notice,setNotice]=useState('');const [selected,setSelected]=useState(null);const [episodes,setEpisodes]=useState([]);const [episode,setEpisode]=useState(epBlank);const [uploading,setUploading]=useState('');const [uploadMessage,setUploadMessage]=useState('');
- async function refresh(t=token){if(!t)return;try{const r=await api.get('/admin/series',config(t));setItems(r.data.data);setError('')}catch(e){setError(errorText(e));if(e.response?.status===401)logout()}}
- useEffect(()=>{if(token)refresh(token)},[token]);
- function logout(){sessionStorage.removeItem(tokenKey);setToken('');setItems([]);setSelected(null)}
- async function login(e){e.preventDefault();setBusy(true);setError('');try{const r=await api.post('/admin/login',{email,password});sessionStorage.setItem(tokenKey,r.data.token);setToken(r.data.token);setPassword('')}catch(e){setError(errorText(e))}finally{setBusy(false)}}
- function edit(item){setEditing(item._id);setForm({...blank,...item,genres:(item.genres||[]).join(', '),releaseYear:item.releaseYear??'',rating:item.rating??''});window.scrollTo({top:0,behavior:'smooth'})}
- function reset(){setEditing(null);setForm(blank)}
- async function save(e){e.preventDefault();setBusy(true);setError('');setNotice('');const data={...form,genres:form.genres.split(',').map(x=>x.trim()).filter(Boolean),releaseYear:form.releaseYear?Number(form.releaseYear):undefined,rating:form.rating?Number(form.rating):undefined};try{if(editing)await api.put(`/admin/series/${editing}`,data,config(token));else await api.post('/admin/series',data,config(token));setNotice('Series saved successfully');reset();await refresh()}catch(e){setError(errorText(e))}finally{setBusy(false)}}
- async function remove(item){if(!window.confirm(`Delete "${item.title}" and all its episodes?`))return;try{await api.delete(`/admin/series/${item._id}`,config(token));if(selected===item._id)setSelected(null);await refresh()}catch(e){setError(errorText(e))}}
- async function openEpisodes(id){setSelected(id);setEpisode(epBlank);try{const r=await api.get(`/admin/series/${id}/episodes`,config(token));setEpisodes(r.data.data)}catch(e){setError(errorText(e))}}
- async function addEpisode(e){e.preventDefault();setBusy(true);setError('');try{await api.post(`/admin/series/${selected}/episodes`,episode,config(token));setEpisode(epBlank);await openEpisodes(selected)}catch(e){setError(errorText(e))}finally{setBusy(false)}}
- async function removeEpisode(id){if(!window.confirm('Delete this episode?'))return;try{await api.delete(`/admin/episodes/${id}`,config(token));await openEpisodes(selected)}catch(e){setError(errorText(e))}}
- async function uploadEpisodeVideo(id,file){if(!file)return;setUploading(id);setUploadMessage('Uploading video...');setError('');try{const body=new FormData();body.append('video',file);const response=await api.post(`/videos/episodes/${id}/upload`,body,{headers:{Authorization:`Bearer ${token}`,'Content-Type':'multipart/form-data'},timeout:0});setUploadMessage(response.data.message);await openEpisodes(selected)}catch(e){setError(errorText(e));setUploadMessage('')}finally{setUploading('')}}
- async function refreshVideoStatus(id){try{const r=await api.post(`/videos/episodes/${id}/refresh-status`,{},config(token));setUploadMessage(`Video status: ${r.data.videoStatus}${r.data.encodeProgress!=null?` (${r.data.encodeProgress}%)`:''}`);await openEpisodes(selected)}catch(e){setError(errorText(e))}}
- const field=(key,label,type='text')=><label>{label}<input type={type} value={form[key]} onChange={e=>setForm({...form,[key]:e.target.value})}/></label>;
- if(!token)return <main className="admin-page"><section className="admin-login"><p className="eyebrow">STREAMVAULT CONTROL ROOM</p><h1>Admin sign in</h1><p>Sign in with your administrator credentials.</p><form onSubmit={login}><label>Email<input type="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label><label>Password<input type="password" required value={password} onChange={e=>setPassword(e.target.value)}/></label>{error&&<p className="admin-error" role="alert">{error}</p>}<button className="btn btn-gold" disabled={busy}>Sign in</button></form><Link to="/">← Back to StreamVault</Link></section></main>;
- return <main className="admin-page page-width"><div className="admin-top"><div><p className="eyebrow">CONTENT MANAGEMENT</p><h1>Admin dashboard</h1><p>{items.length} series in your database</p></div><button className="btn btn-ghost" onClick={logout}>Sign out</button></div>{error&&<p className="admin-error" role="alert">{error}</p>}{notice&&<p className="admin-success">{notice}</p>}
- <div className="admin-layout"><section className="admin-panel"><h2>{editing?'Edit series':'Add a new series'}</h2><form onSubmit={save}><div className="admin-fields">{field('title','Title *')}{field('slug','URL slug * (e.g. my-series)')}{field('posterUrl','Poster image URL','url')}{field('backdropUrl','Backdrop image URL','url')}{field('genres','Genres (comma separated)')}{field('releaseYear','Release year','number')}{field('rating','Rating (0–10)','number')}{field('contentProvider','Content provider')}</div><label>Description<textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></label><div className="admin-checks"><label><input type="checkbox" checked={form.featured} onChange={e=>setForm({...form,featured:e.target.checked})}/> Featured</label><label><input type="checkbox" checked={form.published} onChange={e=>setForm({...form,published:e.target.checked})}/> Published</label></div><div className="admin-actions"><button className="btn btn-gold" disabled={busy}>{busy?'Saving...':'Save series'}</button>{editing&&<button type="button" className="btn btn-ghost" onClick={reset}>Cancel edit</button>}</div></form></section>
- <section className="admin-panel"><h2>Manage series</h2>{!items.length?<p>No series yet. Add your first title.</p>:<div className="admin-list">{items.map(item=><article className="admin-item" key={item._id}><div className="admin-poster">{item.posterUrl?<img src={item.posterUrl} alt=""/>:'SV'}</div><div className="admin-item-main"><strong>{item.title}</strong><small>{item.published?'Published':'Draft'} · {item.slug}</small><div className="admin-actions"><button onClick={()=>edit(item)}>Edit</button><button onClick={()=>openEpisodes(item._id)}>Episodes</button><button onClick={()=>remove(item)} className="danger">Delete</button></div></div></article>)}</div>}</section></div>
- {selected&&<section className="admin-panel admin-episodes"><div className="admin-top"><h2>Episodes: {items.find(i=>i._id===selected)?.title}</h2><button onClick={()=>setSelected(null)}>Close</button></div><div className="admin-list">{episodes.map(ep=><article className="admin-item" key={ep._id}><div className="admin-item-main"><strong>S{ep.seasonNumber} E{ep.episodeNumber} — {ep.title}</strong><small>{ep.published?'Published':'Draft'} · Video: {ep.videoStatus||'not_uploaded'}</small><div className="admin-actions"><label className="btn btn-ghost">Choose video<input type="file" accept="video/mp4,video/quicktime,video/webm" hidden onChange={e=>uploadEpisodeVideo(ep._id,e.target.files?.[0])}/></label>{ep.bunnyVideoId&&<button type="button" onClick={()=>refreshVideoStatus(ep._id)}>Refresh processing status</button>}<button className="danger" onClick={()=>removeEpisode(ep._id)}>Delete</button></div></div></article>)}</div>{uploadMessage&&<p className="admin-success">{uploadMessage}</p>}<h3>Add episode</h3><form onSubmit={addEpisode}><div className="admin-fields"><label>Episode title<input required value={episode.title} onChange={e=>setEpisode({...episode,title:e.target.value})}/></label><label>Season<input type="number" min="1" required value={episode.seasonNumber} onChange={e=>setEpisode({...episode,seasonNumber:Number(e.target.value)})}/></label><label>Episode number<input type="number" min="1" required value={episode.episodeNumber} onChange={e=>setEpisode({...episode,episodeNumber:Number(e.target.value)})}/></label><label>Thumbnail URL<input type="url" value={episode.thumbnailUrl} onChange={e=>setEpisode({...episode,thumbnailUrl:e.target.value})}/></label><label>Licensed video asset ID<input value={episode.videoAssetId} onChange={e=>setEpisode({...episode,videoAssetId:e.target.value})}/></label></div><label>Description<textarea value={episode.description} onChange={e=>setEpisode({...episode,description:e.target.value})}/></label><label className="admin-inline"><input type="checkbox" checked={episode.published} onChange={e=>setEpisode({...episode,published:e.target.checked})}/> Published</label><button className="btn btn-gold" disabled={busy}>Add episode</button></form></section>}
- </main>;
+
+const blank = {
+  title: '',
+  slug: '',
+  description: '',
+  posterUrl: '',
+  backdropUrl: '',
+  genres: '',
+  releaseYear: '',
+  rating: '',
+  contentProvider: '',
+  featured: false,
+  published: false
+};
+
+const epBlank = {
+  title: '',
+  seasonNumber: 1,
+  episodeNumber: 1,
+  description: '',
+  thumbnailUrl: '',
+  published: false
+};
+
+const tokenKey = 'streamvault-admin-token';
+
+function config(token) {
+  return {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  };
+}
+
+function errorText(e) {
+  return e.response?.data?.message || e.message || 'Request failed';
+}
+
+export default function Admin() {
+  const [token, setToken] = useState(
+    () => sessionStorage.getItem(tokenKey) || ''
+  );
+
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
+  const [items, setItems] = useState([]);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState(blank);
+
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  const [selected, setSelected] = useState(null);
+  const [episodes, setEpisodes] = useState([]);
+  const [episode, setEpisode] = useState(epBlank);
+
+  const [uploading, setUploading] = useState('');
+  const [uploadMessage, setUploadMessage] = useState('');
+
+  // Bunny Video IDs entered for individual episodes.
+  const [bunnyIds, setBunnyIds] = useState({});
+
+  async function refresh(t = token) {
+    if (!t) return;
+
+    try {
+      const r = await api.get('/admin/series', config(t));
+      setItems(r.data.data);
+      setError('');
+    } catch (e) {
+      setError(errorText(e));
+
+      if (e.response?.status === 401) {
+        logout();
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (token) refresh(token);
+  }, [token]);
+
+  function logout() {
+    sessionStorage.removeItem(tokenKey);
+    setToken('');
+    setItems([]);
+    setSelected(null);
+  }
+
+  async function login(e) {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+
+    try {
+      const r = await api.post('/admin/login', {
+        email,
+        password
+      });
+
+      sessionStorage.setItem(tokenKey, r.data.token);
+      setToken(r.data.token);
+      setPassword('');
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function edit(item) {
+    setEditing(item._id);
+
+    setForm({
+      ...blank,
+      ...item,
+      genres: (item.genres || []).join(', '),
+      releaseYear: item.releaseYear ?? '',
+      rating: item.rating ?? ''
+    });
+
+    window.scrollTo({
+      top: 0,
+      behavior: 'smooth'
+    });
+  }
+
+  function reset() {
+    setEditing(null);
+    setForm(blank);
+  }
+
+  async function save(e) {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+    setNotice('');
+
+    const data = {
+      ...form,
+      genres: form.genres.split(',').map(x => x.trim()).filter(Boolean),
+      releaseYear: form.releaseYear
+        ? Number(form.releaseYear)
+        : undefined,
+      rating: form.rating
+        ? Number(form.rating)
+        : undefined
+    };
+
+    try {
+      if (editing) {
+        await api.put(
+          `/admin/series/${editing}`,
+          data,
+          config(token)
+        );
+      } else {
+        await api.post('/admin/series', data, config(token));
+      }
+
+      setNotice('Series saved successfully.');
+      reset();
+      await refresh();
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(item) {
+    if (!window.confirm(`Delete "${item.title}" and all its episodes?`)) {
+      return;
+    }
+
+    try {
+      await api.delete(
+        `/admin/series/${item._id}`,
+        config(token)
+      );
+
+      if (selected === item._id) {
+        setSelected(null);
+      }
+
+      await refresh();
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
+  async function openEpisodes(id) {
+    setSelected(id);
+    setEpisode(epBlank);
+    setUploadMessage('');
+    setError('');
+
+    try {
+      const r = await api.get(
+        `/admin/series/${id}/episodes`,
+        config(token)
+      );
+
+      setEpisodes(r.data.data);
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
+  async function addEpisode(e) {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+
+    try {
+      await api.post(
+        `/admin/series/${selected}/episodes`,
+        episode,
+        config(token)
+      );
+
+      setEpisode(epBlank);
+      await openEpisodes(selected);
+      setNotice('Episode added successfully.');
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeEpisode(id) {
+    if (!window.confirm('Delete this episode?')) return;
+
+    try {
+      await api.delete(
+        `/admin/episodes/${id}`,
+        config(token)
+      );
+
+      await openEpisodes(selected);
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
+  // Existing direct upload through StreamVault.
+  async function uploadEpisodeVideo(id, file) {
+    if (!file) return;
+
+    setUploading(id);
+    setUploadMessage('Uploading video to Bunny...');
+    setError('');
+
+    try {
+      const body = new FormData();
+      body.append('video', file);
+
+      const response = await api.post(
+        `/videos/episodes/${id}/upload`,
+        body,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`
+          },
+          timeout: 0
+        }
+      );
+
+      setUploadMessage(response.data.message);
+      await openEpisodes(selected);
+    } catch (e) {
+      setError(errorText(e));
+      setUploadMessage('');
+    } finally {
+      setUploading('');
+    }
+  }
+
+  // Attach an existing Bunny Stream video by its Video ID.
+  async function attachBunnyVideo(id) {
+    const bunnyVideoId = (bunnyIds[id] || '').trim();
+
+    if (!bunnyVideoId) {
+      setError('Please enter a Bunny Video ID.');
+      return;
+    }
+
+    setUploading(id);
+    setError('');
+    setUploadMessage('Verifying Bunny Video ID...');
+
+    try {
+      const response = await api.post(
+        `/videos/episodes/${id}/attach-bunny`,
+        { bunnyVideoId },
+        config(token)
+      );
+
+      setUploadMessage(
+        `${response.data.message} Status: ${response.data.videoStatus}.`
+      );
+
+      await openEpisodes(selected);
+    } catch (e) {
+      setError(errorText(e));
+      setUploadMessage('');
+    } finally {
+      setUploading('');
+    }
+  }
+
+  // Refresh encoding progress from Bunny.
+  async function refreshVideoStatus(id) {
+    setUploading(id);
+    setError('');
+
+    try {
+      const r = await api.post(
+        `/videos/episodes/${id}/refresh-status`,
+        {},
+        config(token)
+      );
+
+      setUploadMessage(
+        `Video status: ${r.data.videoStatus}` +
+        (
+          r.data.encodeProgress != null
+            ? ` (${r.data.encodeProgress}%)`
+            : ''
+        )
+      );
+
+      await openEpisodes(selected);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setUploading('');
+    }
+  }
+
+  const field = (key, label, type = 'text') => (
+    <label key={key}>
+      {label}
+      <input
+        type={type}
+        value={form[key]}
+        onChange={e =>
+          setForm({
+            ...form,
+            [key]: e.target.value
+          })
+        }
+      />
+    </label>
+  );
+
+  // Admin login page.
+  if (!token) {
+    return (
+      <main className="admin-page">
+        <section className="admin-login">
+          <p className="eyebrow">STREAMVAULT CONTROL ROOM</p>
+
+          <h1>Admin sign in</h1>
+
+          <p>Sign in with your administrator credentials.</p>
+
+          <form onSubmit={login}>
+            <label>
+              Email
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+              />
+            </label>
+
+            <label>
+              Password
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+              />
+            </label>
+
+            {error && (
+              <p className="admin-error" role="alert">
+                {error}
+              </p>
+            )}
+
+            <button className="btn btn-gold" disabled={busy}>
+              {busy ? 'Signing in...' : 'Sign in'}
+            </button>
+          </form>
+
+          <Link to="/">← Back to StreamVault</Link>
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <main className="admin-page page-width">
+
+      {/* Dashboard header */}
+      <div className="admin-top">
+        <div>
+          <p className="eyebrow">CONTENT MANAGEMENT</p>
+          <h1>Admin dashboard</h1>
+          <p>{items.length} series in your database</p>
+        </div>
+
+        <button className="btn btn-ghost" onClick={logout}>
+          Sign out
+        </button>
+      </div>
+
+      {error && (
+        <p className="admin-error" role="alert">
+          {error}
+        </p>
+      )}
+
+      {notice && (
+        <p className="admin-success">
+          {notice}
+        </p>
+      )}
+
+      <div className="admin-layout">
+
+        {/* Add or edit series */}
+        <section className="admin-panel">
+          <h2>{editing ? 'Edit series' : 'Add a new series'}</h2>
+
+          <form onSubmit={save}>
+            <div className="admin-fields">
+              {field('title', 'Title *')}
+              {field('slug', 'URL slug *')}
+              {field('posterUrl', 'Poster image URL', 'url')}
+              {field('backdropUrl', 'Backdrop image URL', 'url')}
+              {field('genres', 'Genres (comma separated)')}
+              {field('releaseYear', 'Release year', 'number')}
+              {field('rating', 'Rating (0–10)', 'number')}
+              {field('contentProvider', 'Content provider')}
+            </div>
+
+            <label>
+              Description
+              <textarea
+                value={form.description}
+                onChange={e =>
+                  setForm({
+                    ...form,
+                    description: e.target.value
+                  })
+                }
+              />
+            </label>
+
+            <div className="admin-checks">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={form.featured}
+                  onChange={e =>
+                    setForm({
+                      ...form,
+                      featured: e.target.checked
+                    })
+                  }
+                />
+                Featured
+              </label>
+
+              <label>
+                <input
+                  type="checkbox"
+                  checked={form.published}
+                  onChange={e =>
+                    setForm({
+                      ...form,
+                      published: e.target.checked
+                    })
+                  }
+                />
+                Published
+              </label>
+            </div>
+
+            <div className="admin-actions">
+              <button className="btn btn-gold" disabled={busy}>
+                {busy ? 'Saving...' : 'Save series'}
+              </button>
+
+              {editing && (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={reset}
+                >
+                  Cancel edit
+                </button>
+              )}
+            </div>
+          </form>
+        </section>
+
+        {/* Series list */}
+        <section className="admin-panel">
+          <h2>Manage series</h2>
+
+          {!items.length ? (
+            <p>No series yet. Add your first title.</p>
+          ) : (
+            <div className="admin-list">
+              {items.map(item => (
+                <article className="admin-item" key={item._id}>
+                  <div className="admin-poster">
+                    {item.posterUrl
+                      ? <img src={item.posterUrl} alt="" />
+                      : 'SV'}
+                  </div>
+
+                  <div className="admin-item-main">
+                    <strong>{item.title}</strong>
+
+                    <small>
+                      {item.published ? 'Published' : 'Draft'}
+                      {' · '}
+                      {item.slug}
+                    </small>
+
+                    <div className="admin-actions">
+                      <button onClick={() => edit(item)}>
+                        Edit
+                      </button>
+
+                      <button onClick={() => openEpisodes(item._id)}>
+                        Episodes
+                      </button>
+
+                      <button
+                        onClick={() => remove(item)}
+                        className="danger"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+
+      {/* Episode management */}
+      {selected && (
+        <section className="admin-panel admin-episodes">
+
+          <div className="admin-top">
+            <h2>
+              Episodes: {items.find(i => i._id === selected)?.title}
+            </h2>
+
+            <button onClick={() => setSelected(null)}>
+              Close
+            </button>
+          </div>
+
+          <div className="admin-list">
+            {episodes.map(ep => (
+              <article className="admin-item" key={ep._id}>
+                <div className="admin-item-main">
+
+                  <strong>
+                    S{ep.seasonNumber} E{ep.episodeNumber}
+                    {' — '}
+                    {ep.title}
+                  </strong>
+
+                  <small>
+                    {ep.published ? 'Published' : 'Draft'}
+                    {' · Video: '}
+                    {ep.videoStatus || 'not_uploaded'}
+                  </small>
+
+                  {ep.bunnyVideoId && (
+                    <small>
+                      Bunny ID: {ep.bunnyVideoId}
+                    </small>
+                  )}
+
+                  <div className="admin-actions">
+
+                    {/* Direct video upload */}
+                    <label className="btn btn-ghost">
+                      Choose video
+
+                      <input
+                        type="file"
+                        accept="video/mp4,video/quicktime,video/webm"
+                        hidden
+                        onChange={e => {
+                          uploadEpisodeVideo(
+                            ep._id,
+                            e.target.files?.[0]
+                          );
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+
+                    {/* Paste Bunny ID */}
+                    <input
+                      type="text"
+                      placeholder="Paste Bunny Video ID"
+                      value={
+                        bunnyIds[ep._id] ?? ep.bunnyVideoId ?? ''
+                      }
+                      onChange={e =>
+                        setBunnyIds(prev => ({
+                          ...prev,
+                          [ep._id]: e.target.value
+                        }))
+                      }
+                    />
+
+                    <button
+                      type="button"
+                      disabled={uploading === ep._id}
+                      onClick={() => attachBunnyVideo(ep._id)}
+                    >
+                      {uploading === ep._id
+                        ? 'Attaching...'
+                        : 'Attach Bunny ID'}
+                    </button>
+
+                    {ep.bunnyVideoId && (
+                      <button
+                        type="button"
+                        disabled={uploading === ep._id}
+                        onClick={() => refreshVideoStatus(ep._id)}
+                      >
+                        Refresh status
+                      </button>
+                    )}
+
+                    <button
+                      className="danger"
+                      onClick={() => removeEpisode(ep._id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+
+          {uploadMessage && (
+            <p className="admin-success">
+              {uploadMessage}
+            </p>
+          )}
+
+          {/* Add episode */}
+          <h3>Add episode</h3>
+
+          <form onSubmit={addEpisode}>
+            <div className="admin-fields">
+
+              <label>
+                Episode title
+                <input
+                  required
+                  value={episode.title}
+                  onChange={e =>
+                    setEpisode({
+                      ...episode,
+                      title: e.target.value
+                    })
+                  }
+                />
+              </label>
+
+              <label>
+                Season
+                <input
+                  type="number"
+                  min="1"
+                  required
+                  value={episode.seasonNumber}
+                  onChange={e =>
+                    setEpisode({
+                      ...episode,
+                      seasonNumber: Number(e.target.value)
+                    })
+                  }
+                />
+              </label>
+
+              <label>
+                Episode number
+                <input
+                  type="number"
+                  min="1"
+                  required
+                  value={episode.episodeNumber}
+                  onChange={e =>
+                    setEpisode({
+                      ...episode,
+                      episodeNumber: Number(e.target.value)
+                    })
+                  }
+                />
+              </label>
+
+              <label>
+                Thumbnail URL
+                <input
+                  type="url"
+                  value={episode.thumbnailUrl}
+                  onChange={e =>
+                    setEpisode({
+                      ...episode,
+                      thumbnailUrl: e.target.value
+                    })
+                  }
+                />
+              </label>
+            </div>
+
+            <label>
+              Description
+              <textarea
+                value={episode.description}
+                onChange={e =>
+                  setEpisode({
+                    ...episode,
+                    description: e.target.value
+                  })
+                }
+              />
+            </label>
+
+            <label className="admin-inline">
+              <input
+                type="checkbox"
+                checked={episode.published}
+                onChange={e =>
+                  setEpisode({
+                    ...episode,
+                    published: e.target.checked
+                  })
+                }
+              />
+              Published
+            </label>
+
+            <button className="btn btn-gold" disabled={busy}>
+              {busy ? 'Adding...' : 'Add episode'}
+            </button>
+          </form>
+        </section>
+      )}
+    </main>
+  );
 }
