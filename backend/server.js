@@ -11,7 +11,23 @@ import playbackRoutes from './routes/playbackRoutes.js';
 import { notFound, errorHandler } from './middleware/errorHandler.js';
 const app = express();
 app.use(helmet());
-app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173' }));
+const allowedOrigins = [
+  "https://desimaal.online",
+  "https://www.desimaal.online",
+  "https://streamvault-jade.vercel.app",
+  "https://streamvault-vps-projects-ea70b8e2.vercel.app"
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS: " + origin));
+    }
+  },
+  credentials: true
+}));
 app.use(express.json({ limit: '1mb' }));
 if (process.env.NODE_ENV !== 'production') app.use(morgan('dev'));
 app.get('/api/health', (req, res) => res.json({ success: true, message: 'StreamVault API is running' }));
