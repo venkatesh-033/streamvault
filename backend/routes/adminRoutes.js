@@ -1,0 +1,31 @@
+import {Router} from 'express';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import rateLimit from 'express-rate-limit';
+import mongoose from 'mongoose';
+import Admin from '../models/Admin.js';
+import Series from '../models/Series.js';
+import Episode from '../models/Episode.js';
+import {requireAdmin} from '../middleware/adminAuth.js';
+const router=Router();
+const loginLimiter=rateLimit({windowMs:15*60*1000,limit:10,standardHeaders:'draft-7',legacyHeaders:false});
+router.post('/login',loginLimiter,async(req,res,next)=>{try{
+ const {email,password}=req.body||{};
+ if(typeof email!=='string'||typeof password!=='string')return res.status(400).json({message:'Email and password required'});
+ const admin=await Admin.findOne({email:email.trim().toLowerCase()});
+ if(!admin||!(await bcrypt.compare(password,admin.passwordHash)))return res.status(401).json({message:'Invalid credentials'});
+ if(!process.env.JWT_SECRET)throw Error('JWT_SECRET is missing');
+ const token=jwt.sign({role:'admin'},process.env.JWT_SECRET,{subject:String(admin._id),expiresIn:'8h',algorithm:'HS256'});
+ res.json({success:true,token});
+ }catch(e){next(e)}});
+router.use(requireAdmin);
+router.get('/series',async(req,res,next)=>{try{res.json({success:true,data:await Series.find().sort({createdAt:-1}).limit(200).lean()})}catch(e){next(e)}});
+const clean=(data)=>({title:data.title,slug:data.slug,description:data.description||'',posterUrl:data.posterUrl||'',backdropUrl:data.backdropUrl||'',genres:Array.isArray(data.genres)?data.genres:[],releaseYear:data.releaseYear||undefined,rating:data.rating||undefined,contentProvider:data.contentProvider||'',featured:!!data.featured,published:!!data.published});
+function valid(data){return data&&typeof data.title==='string'&&data.title.trim().length>0&&data.title.length<=150&&typeof data.slug==='string'&&/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(data.slug)&&Array.isArray(data.genres)&&data.genres.length<=12&&data.genres.every(g=>typeof g==='string'&&g.length<=40)&&(!data.releaseYear||(Number.isInteger(Number(data.releaseYear))&&Number(data.releaseYear)>=1888&&Number(data.releaseYear)<=2200))&&(!data.rating||(Number(data.rating)>=0&&Number(data.rating)<=10));}
+router.post('/series',async(req,res,next)=>{try{if(!valid(req.body))return res.status(400).json({message:'Check title, slug, genres, year and rating'});const item=await Series.create(clean(req.body));res.status(201).json({success:true,data:item})}catch(e){next(e)}});
+router.put('/series/:id',async(req,res,next)=>{try{if(!mongoose.isValidObjectId(req.params.id))return res.status(400).json({message:'Invalid series ID'});if(!valid(req.body))return res.status(400).json({message:'Invalid series fields'});const item=await Series.findByIdAndUpdate(req.params.id,{$set:clean(req.body)},{new:true,runValidators:true});if(!item)return res.status(404).json({message:'Series not found'});res.json({success:true,data:item})}catch(e){next(e)}});
+router.delete('/series/:id',async(req,res,next)=>{try{if(!mongoose.isValidObjectId(req.params.id))return res.status(400).json({message:'Invalid series ID'});const item=await Series.findByIdAndDelete(req.params.id);if(!item)return res.status(404).json({message:'Series not found'});await Episode.deleteMany({series:req.params.id});res.json({success:true})}catch(e){next(e)}});
+router.get('/series/:id/episodes',async(req,res,next)=>{try{if(!mongoose.isValidObjectId(req.params.id))return res.status(400).json({message:'Invalid series ID'});res.json({success:true,data:await Episode.find({series:req.params.id}).sort({seasonNumber:1,episodeNumber:1}).lean()})}catch(e){next(e)}});
+router.post('/series/:id/episodes',async(req,res,next)=>{try{if(!mongoose.isValidObjectId(req.params.id))return res.status(400).json({message:'Invalid series ID'});if(!await Series.exists({_id:req.params.id}))return res.status(404).json({message:'Series not found'});const d=req.body||{};if(typeof d.title!=='string'||!d.title.trim()||!Number.isInteger(Number(d.episodeNumber))||Number(d.episodeNumber)<1||!Number.isInteger(Number(d.seasonNumber))||Number(d.seasonNumber)<1)return res.status(400).json({message:'Valid title, season and episode numbers required'});const ep=await Episode.create({series:req.params.id,title:d.title.trim(),seasonNumber:Number(d.seasonNumber),episodeNumber:Number(d.episodeNumber),description:d.description||'',thumbnailUrl:d.thumbnailUrl||'',published:!!d.published});res.status(201).json({success:true,data:ep})}catch(e){next(e)}});
+router.delete('/episodes/:id',async(req,res,next)=>{try{if(!mongoose.isValidObjectId(req.params.id))return res.status(400).json({message:'Invalid episode ID'});const ep=await Episode.findByIdAndDelete(req.params.id);if(!ep)return res.status(404).json({message:'Episode not found'});res.json({success:true})}catch(e){next(e)}});
+export default router;
