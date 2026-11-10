@@ -10,6 +10,7 @@ import videoRoutes from './routes/videoRoutes.js';
 import playbackRoutes from './routes/playbackRoutes.js';
 import { notFound, errorHandler } from './middleware/errorHandler.js';
 const app = express();
+app.set("trust proxy", 1);
 app.use(helmet());
 const allowedOrigins = [
   "https://desimaal.online",
